@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import llm
 from retrieval import KnowledgeBase, load_chunks
 
 DOCS_DIR = Path(__file__).parent / "docs"
@@ -18,6 +19,9 @@ class Answer:
     text: str
     sources: list = field(default_factory=list)  # [(файл, тақырып, score)]
     conflict: str = ""                           # беттердегі сандар сәйкес келмесе, түсініктеме
+    chunks: list = field(default_factory=list)   # LLM-ге беретін құжат бөліктері
+    generated: bool = False                      # жауапты тіл моделі құрастырды ма
+    llm_error: str = ""                          # модель шақырылып, сәтсіз болса, себебі
 
 
 # «3 күн», «1–3 жұмыс күні», «24 айға», «1-күн»: сан + өлшем бірлігі (күн/ай)
@@ -57,4 +61,21 @@ def answer(question, kb, k=3):
         (h.chunk.source != top.chunk.source and h.score >= 0.35 * top.score)))]
     text = "\n\n".join(f"[{h.chunk.heading}]\n{h.chunk.text}" for h in shown)
     return Answer(True, text, [(h.chunk.source, h.chunk.heading, round(h.score, 2)) for h in shown],
-                  conflict=find_conflict(shown))
+                  conflict=find_conflict(shown), chunks=[h.chunk for h in shown])
+
+
+def respond(question, kb, use_llm=None):
+    """Толық жауап: іздеу → (бар болса) тіл моделі → болмаса құжаттан үзінді.
+    Іздеу «білмеймін» десе, модель МҮЛДЕМ шақырылмайды."""
+    a = answer(question, kb)
+    if not a.found:
+        return a
+    if use_llm is None:
+        use_llm = llm.is_enabled()
+    if use_llm:
+        try:
+            a.text = llm.generate(question, a.chunks)
+            a.generated = True
+        except llm.LLMError as e:
+            a.llm_error = str(e)
+    return a
