@@ -6,3 +6,4 @@ venv/
 .vscode/
 .DS_Store
 evals/results.json
+evals/llm_results.json
